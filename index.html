@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>쿼터 라인업 메이커</title>
+<meta name="description" content="아마추어 축구 4쿼터 출전시간·포지션 자동 배정">
+<meta name="theme-color" content="#0f2a1d">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <input id="teamName" class="team-name" aria-label="팀 이름" spellcheck="false">
+    <span class="sub">쿼터 라인업 메이커</span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="match" class="on">경기</button>
+    <button role="tab" data-tab="players">선수</button>
+    <button role="tab" data-tab="formation">포메이션</button>
+  </nav>
+</header>
+
+<main>
+  <!-- 경기 -->
+  <section id="tab-match" class="panel on">
+    <div class="match-grid">
+      <div class="attend card">
+        <div class="card-head">
+          <h2>오늘 출석</h2>
+          <span id="attendCount" class="pill"></span>
+        </div>
+        <p class="hint">이름을 눌러 출석/불참. 오른쪽 Q 버튼을 끄면 그 쿼터엔 못 뛰는 걸로 처리(지각·조퇴).</p>
+        <ul id="attendList" class="attend-list"></ul>
+        <button id="runBtn" class="run">라인업 짜기</button>
+        <p id="runMsg" class="run-msg" role="status"></p>
+      </div>
+
+      <div class="result">
+        <div id="emptyState" class="empty">
+          <div class="mini-pitch" aria-hidden="true"></div>
+          <p>출석 체크하고 <b>라인업 짜기</b>를 누르면<br>4쿼터 배치가 여기 나와요.</p>
+        </div>
+        <div id="resultView" hidden>
+          <div class="q-tabs" id="qTabs"></div>
+          <div class="pitch-wrap">
+            <div class="pitch" id="pitch">
+              <div class="line half"></div><div class="line circle"></div>
+              <div class="line box tb"></div><div class="line box bb"></div>
+              <div class="line six tb"></div><div class="line six bb"></div>
+              <div id="chips"></div>
+            </div>
+            <div class="bench">
+              <h3>벤치</h3>
+              <div id="bench" class="bench-list"></div>
+              <div id="vacancy" class="vacancy"></div>
+            </div>
+          </div>
+          <div class="card matrix-card">
+            <div class="card-head">
+              <h2>출전표</h2>
+              <div class="actions">
+                <button id="copyBtn" class="ghost">카톡용 텍스트 복사</button>
+              </div>
+            </div>
+            <div class="matrix-scroll"><table id="matrix" class="matrix"></table></div>
+            <p class="hint" id="summary"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 선수 -->
+  <section id="tab-players" class="panel">
+    <div class="card">
+      <div class="card-head">
+        <h2>선수 관리</h2>
+        <button id="addPlayer" class="ghost">+ 선수 추가</button>
+      </div>
+      <p class="hint">포지션 칸을 누를 때마다 <b>0 → 3(주) → 2 → 1</b> 순으로 바뀝니다. 3=주포지션, 2=잘하는 서브, 1=커버 가능, 빈칸=불가.</p>
+      <div class="skill-scroll"><table id="skillTable" class="skill-table"></table></div>
+    </div>
+    <div class="card io">
+      <h2>데이터 백업</h2>
+      <p class="hint">데이터는 이 브라우저에만 저장돼요. 다른 기기로 옮길 땐 내보내기/가져오기를 쓰세요.</p>
+      <div class="actions">
+        <button id="exportBtn" class="ghost">JSON 내보내기</button>
+        <label class="ghost file">JSON 가져오기<input type="file" id="importFile" accept="application/json" hidden></label>
+        <button id="resetBtn" class="ghost danger">기본값으로 초기화</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 포메이션 -->
+  <section id="tab-formation" class="panel">
+    <div class="card">
+      <div class="card-head">
+        <h2>포메이션</h2>
+        <span id="formTotal" class="pill"></span>
+      </div>
+      <p class="hint">쿼터마다 채울 포지션별 인원. 합계가 경기 인원(11인제면 11)과 같아야 해요.</p>
+      <div id="formEditor" class="form-editor"></div>
+    </div>
+    <div class="card">
+      <h2>세부 설정</h2>
+      <label class="row">쿼터 수
+        <input type="number" id="quarters" min="1" max="6">
+      </label>
+      <label class="row">공정성 우선도
+        <select id="fairness">
+          <option value="200">아주 높음 (출전 시간 최대한 균등)</option>
+          <option value="50">높음 (기본)</option>
+          <option value="5">보통 (실력 조합 우선)</option>
+        </select>
+      </label>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">계산은 브라우저 안에서 HiGHS 최적화 엔진으로 돌아가요. 서버로 전송되는 데이터 없음.</footer>
+<div id="toast" class="toast" role="status"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
