@@ -1,0 +1,11 @@
+import loadHighs from 'highs';
+import { solve } from './solver.js';
+import { DEFAULT_FORMATION, DEFAULT_PLAYERS } from './defaults.js';
+const data = { quarters: 4, fairnessWeight: 50, formation: DEFAULT_FORMATION, players: structuredClone(DEFAULT_PLAYERS) };
+const highs = await loadHighs();
+let t=Date.now(); let r = solve(highs, data); console.log(Date.now()-t,'ms', r.status, 'fit', r.fit, r.counts.join(','));
+r.lineup.forEach((q,i)=>console.log(i+1, q.map(s=>s.pos+':'+s.players.map(p=>p.name).join('/')).join(' ')));
+data.players[0].avail=[false,false,true,true]; data.players[8].avail=[true,true,true,false];
+r = solve(highs, data); console.log('avail test:', r.status, r.counts.join(","), JSON.stringify(r.vacancies));
+data.players[8].avail=[true,true,true,true]; data.players.splice(8,1);
+r = solve(highs, data); console.log('no GK:', r.status, JSON.stringify(r.vacancies));

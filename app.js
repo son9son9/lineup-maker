@@ -91,26 +91,36 @@ $('#runBtn').addEventListener('click', async () => {
   try {
     const highs = await getHighs();
     const t0 = performance.now();
-    const res = solve(highs, {
+    const input = {
       quarters: state.quarters,
       fairnessWeight: state.fairnessWeight,
       formation: state.formation,
       players: roster.map(p => ({ name: p.name, skills: p.skills, avail: p.avail })),
-    });
-    if (!res.ok) throw new Error('해를 못 찾았어요 (' + res.status + ')');
+    };
+    // 동점 최적해 중 무작위 선택. 직전 결과와 같으면 몇 번 다시 뽑는다.
+    const prevSig = state.result?.sig;
+    let res, sig, tries = 0;
+    do {
+      res = solve(highs, input, Math.floor(Math.random() * 2 ** 31));
+      if (!res.ok) throw new Error('해를 못 찾았어요 (' + res.status + ')');
+      sig = res.lineup.map(q => q.map(s => s.players.map(p => roster[p.idx]._i).sort().join('.')).join('/')).join('|');
+    } while (sig === prevSig && ++tries < 6);
     // roster index → state index
     res.lineup.forEach(q => q.forEach(s => s.players.forEach(pl => { pl.idx = roster[pl.idx]._i; })));
     state.result = {
-      lineup: res.lineup, fit: res.fit, vacancies: res.vacancies,
+      lineup: res.lineup, fit: res.fit, vacancies: res.vacancies, sig, round: (state.result?.round || 0) + 1,
       roster: roster.map(p => p._i), quarters: state.quarters, at: Date.now(),
     };
     save(); curQ = 0; renderResult();
-    msg.textContent = `완료 · ${Math.round(performance.now() - t0)}ms` + (res.vacancies.length ? ' · 공석 있음' : '');
+    const same = sig === prevSig;
+    msg.textContent = `${state.result.round}번째 조합 · ${Math.round(performance.now() - t0)}ms` +
+      (same ? ' · 이 조건에선 다른 최적 조합이 없어요' : ' · 다시 누르면 같은 점수의 다른 조합') +
+      (res.vacancies.length ? ' · 공석 있음' : '');
     if (res.vacancies.length) msg.classList.add('err');
   } catch (e) {
     msg.textContent = e.message || String(e); msg.classList.add('err');
   } finally {
-    btn.disabled = false; btn.textContent = '라인업 짜기';
+    btn.disabled = false; runLabel();
   }
 });
 
@@ -125,8 +135,11 @@ function chipXY(pos, k, n) {
   return [x - w / 2 + (w * k) / (n - 1), y];
 }
 
+function runLabel() { $('#runBtn').textContent = state.result ? '다른 조합 보기 ↻' : '라인업 짜기'; }
+
 function renderResult() {
   const r = state.result;
+  runLabel();
   $('#emptyState').hidden = !!r;
   $('#resultView').hidden = !r;
   if (!r) return;

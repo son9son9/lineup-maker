@@ -4,7 +4,16 @@
 //          fairnessWeight: 50 }
 // highs = loadHighs() 결과 인스턴스
 
-export function buildLP(data) {
+// 시드 기반 난수 (mulberry32)
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+// seed가 있으면 각 변수에 아주 작은 랜덤 보너스를 더해 '동점 최적해' 중 하나를 무작위로 고른다.
+// 보너스 총합 < 1 이고 원래 목적함수는 정수라서, 최적이 아닌 해가 뽑히는 일은 없다.
+export function buildLP(data, seed) {
   const Q = data.quarters;
   const W = data.fairnessWeight ?? 50;
   const players = data.players;
@@ -22,7 +31,10 @@ export function buildLP(data) {
 
   const L = [];
   const slacks = [];
-  const obj = vars.map(v => `+ ${v.score} ${v.name}`);
+  const totalSlots = data.formation.reduce((a, f) => a + Math.max(0, f.count), 0) * Q;
+  const rand = seed == null ? null : rng(seed);
+  const eps = 0.9 / Math.max(1, totalSlots);
+  const obj = vars.map(v => `+ ${rand ? (v.score + rand() * eps).toFixed(8) : v.score} ${v.name}`);
   obj.push(`- ${W} mx`, `+ ${W} mn`);
   for (let q = 0; q < Q; q++) forms.forEach((_, i) => obj.push(`- 10000 s_${q}_${i}`));
   L.push('Maximize', ' obj: ' + chunk(obj));
@@ -68,8 +80,8 @@ function chunkLines(names) {
   return out;
 }
 
-export function solve(highs, data) {
-  const { lp, vars } = buildLP(data);
+export function solve(highs, data, seed) {
+  const { lp, vars } = buildLP(data, seed);
   const res = highs.solve(lp, { time_limit: 20, mip_rel_gap: 0 , output_flag: false});
   if (res.Status !== 'Optimal' && res.Status !== 'Time limit reached') {
     return { ok: false, status: res.Status };
