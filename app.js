@@ -41,7 +41,14 @@ function normAvail(p) {
   while (p.avail.length < Q) p.avail.push(true);
   p.avail.length = Q;
 }
+// 결과 자체를 무효화 (포메이션/쿼터 수/선수 삭제 등 구조 변경)
 function invalidate() { state.result = null; save(); renderResult(); }
+// 출석·가용·점수 변경: 결과와 잠금은 유지하고 '조건 바뀜' 표시만
+function markStale() {
+  if (state.result) { state.result.stale = true; }
+  save(); renderResult();
+}
+const LOCK_SVG = '<svg class="lk" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke-width="1.6"/></svg>';
 
 /* ---------- tabs ---------- */
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
@@ -63,14 +70,14 @@ function renderAttend() {
     who.className = 'who' + (p.attending ? ' on' : '');
     who.innerHTML = `<span class="check"></span><span><span class="nm"></span>${p.merc ? '<span class="tag">용병</span>' : ''}<br><span class="main-pos">${mainPos(p)}</span></span>`;
     who.querySelector('.nm').textContent = p.name;
-    who.addEventListener('click', () => { p.attending = !p.attending; invalidate(); renderAttend(); });
+    who.addEventListener('click', () => { p.attending = !p.attending; markStale(); renderAttend(); });
     const qs = document.createElement('div');
     qs.className = 'qs' + (p.attending ? '' : ' dis');
     p.avail.forEach((a, q) => {
       const b = document.createElement('button');
       b.textContent = `Q${q + 1}`; b.className = a ? '' : 'off';
       b.title = a ? `${q + 1}쿼터 가능` : `${q + 1}쿼터 불가`;
-      b.addEventListener('click', () => { p.avail[q] = !p.avail[q]; invalidate(); renderAttend(); });
+      b.addEventListener('click', () => { p.avail[q] = !p.avail[q]; markStale(); renderAttend(); });
       qs.appendChild(b);
     });
     li.append(who, qs); ul.appendChild(li);
@@ -87,6 +94,16 @@ $('#runBtn').addEventListener('click', async () => {
   const roster = state.players.map((p, i) => ({ ...p, _i: i })).filter(p => p.attending);
   msg.className = 'run-msg';
   if (!roster.length) { msg.textContent = '출석한 선수가 없어요.'; msg.classList.add('err'); return; }
+  const prev = state.result;
+  const locked = prev && prev.lineup.length === state.quarters ? (prev.locked || []).slice() : [];
+  if (locked.length && locked.filter(Boolean).length === state.quarters) {
+    msg.textContent = '모든 쿼터가 잠겨 있어요. 다시 돌릴 쿼터의 잠금을 풀어주세요.'; msg.classList.add('err'); return;
+  }
+  const rosterPos = new Map(roster.map((p, k) => [p._i, k]));
+  const fixed = Array.from({ length: state.quarters }, (_, q) => locked[q]
+    ? prev.lineup[q].flatMap(s => s.players.filter(pl => rosterPos.has(pl.idx)).map(pl => ({ p: rosterPos.get(pl.idx), pos: s.pos })))
+    : null);
+  const dropped = locked.reduce((n, l, q) => n + (l ? prev.lineup[q].reduce((a, s) => a + s.players.filter(pl => !rosterPos.has(pl.idx)).length, 0) : 0), 0);
   btn.disabled = true; btn.textContent = '계산 중…'; msg.textContent = '';
   try {
     const highs = await getHighs();
@@ -96,6 +113,7 @@ $('#runBtn').addEventListener('click', async () => {
       fairnessWeight: state.fairnessWeight,
       formation: state.formation,
       players: roster.map(p => ({ name: p.name, skills: p.skills, avail: p.avail })),
+      fixed,
     };
     // 동점 최적해 중 무작위 선택. 직전 결과와 같으면 몇 번 다시 뽑는다.
     const prevSig = state.result?.sig;
@@ -109,11 +127,15 @@ $('#runBtn').addEventListener('click', async () => {
     res.lineup.forEach(q => q.forEach(s => s.players.forEach(pl => { pl.idx = roster[pl.idx]._i; })));
     state.result = {
       lineup: res.lineup, fit: res.fit, vacancies: res.vacancies, sig, round: (state.result?.round || 0) + 1,
+      locked: Array.from({ length: state.quarters }, (_, q) => !!locked[q]),
       roster: roster.map(p => p._i), quarters: state.quarters, at: Date.now(),
     };
-    save(); curQ = 0; renderResult();
+    save(); renderResult();
     const same = sig === prevSig;
+    const nLock = locked.filter(Boolean).length;
     msg.textContent = `${state.result.round}번째 조합 · ${Math.round(performance.now() - t0)}ms` +
+      (nLock ? ` · 잠긴 ${nLock}개 쿼터 유지` : '') +
+      (dropped ? ` · 잠긴 쿼터의 불참자 ${dropped}명 자리는 새로 채움` : '') +
       (same ? ' · 이 조건에선 다른 최적 조합이 없어요' : ' · 다시 누르면 같은 점수의 다른 조합') +
       (res.vacancies.length ? ' · 공석 있음' : '');
     if (res.vacancies.length) msg.classList.add('err');
@@ -148,14 +170,39 @@ function renderResult() {
 
   // quarter tabs
   const qt = $('#qTabs'); qt.innerHTML = '';
+  r.locked ||= Array(Q).fill(false);
   r.lineup.forEach((q, i) => {
     const fit = q.reduce((s, sl) => s + sl.players.reduce((a, p) => a + p.score, 0), 0);
     const b = document.createElement('button');
-    b.className = i === curQ ? 'on' : '';
-    b.innerHTML = `${i + 1}Q<span class="fit">적합도 ${fit}</span>`;
+    b.className = (i === curQ ? 'on' : '') + (r.locked[i] ? ' locked' : '');
+    b.innerHTML = `${r.locked[i] ? LOCK_SVG : ''}${i + 1}Q<span class="fit">적합도 ${fit}</span>`;
+    b.setAttribute('aria-label', `${i + 1}쿼터${r.locked[i] ? ' (잠김)' : ''}`);
     b.addEventListener('click', () => { curQ = i; renderResult(); });
     qt.appendChild(b);
   });
+
+  // 쿼터 도구: 잠금 / 다른 쿼터와 바꾸기
+  const tools = $('#qTools'); tools.innerHTML = '';
+  const lk = document.createElement('button');
+  lk.className = 'lock-btn' + (r.locked[curQ] ? ' on' : '');
+  lk.innerHTML = LOCK_SVG + (r.locked[curQ] ? `${curQ + 1}Q 잠김 · 해제` : `${curQ + 1}Q 잠그기`);
+  lk.title = '잠근 쿼터는 다른 조합을 돌려도 그대로 유지돼요';
+  lk.addEventListener('click', () => { r.locked[curQ] = !r.locked[curQ]; save(); renderResult(); });
+  const sw = document.createElement('div'); sw.className = 'swap';
+  sw.innerHTML = `<span>${curQ + 1}Q와 바꾸기</span>`;
+  r.lineup.forEach((_, j) => {
+    if (j === curQ) return;
+    const b = document.createElement('button');
+    b.textContent = `${j + 1}Q`;
+    b.addEventListener('click', () => swapQuarters(curQ, j));
+    sw.appendChild(b);
+  });
+  tools.append(lk, sw);
+  $('.pitch-wrap').classList.toggle('is-locked', !!r.locked[curQ]);
+  if (r.stale) {
+    const m = $('#runMsg'); m.className = 'run-msg err';
+    m.textContent = '출석/포지션이 바뀌었어요. 버튼을 누르면 잠긴 쿼터는 두고 나머지를 다시 짭니다.';
+  }
 
   // pitch
   const chips = $('#chips'); chips.innerHTML = '';
@@ -199,7 +246,7 @@ function renderResult() {
   const cell = {}; // idx -> q -> {pos,score}
   r.lineup.forEach((q, qi) => q.forEach(s => s.players.forEach(p => { (cell[p.idx] ||= {})[qi] = { pos: s.pos, score: p.score }; })));
   const tbl = $('#matrix');
-  let h = '<thead><tr><th>선수</th>' + r.lineup.map((_, i) => `<th>${i + 1}Q</th>`).join('') + '<th>출전</th></tr></thead><tbody>';
+  let h = '<thead><tr><th>선수</th>' + r.lineup.map((_, i) => `<th>${r.locked[i] ? LOCK_SVG : ''}${i + 1}Q</th>`).join('') + '<th>출전</th></tr></thead><tbody>';
   const rows = r.roster.map(i => ({ i, p: state.players[i], n: Object.keys(cell[i] || {}).length })).filter(x => x.p);
   rows.forEach(({ i, p, n }) => {
     h += `<tr${playing.has(i) ? ' class="hl"' : ''}><td>${esc(p.name)}</td>`;
@@ -213,6 +260,24 @@ function renderResult() {
   const counts = rows.map(x => x.n);
   $('#summary').textContent = `총 적합도 ${r.fit} · 출전 쿼터 ${Math.min(...counts)}~${Math.max(...counts)} · 노란 칸=주포지션, 주황 글씨=커버 포지션, ×=불참 쿼터`;
 }
+function swapQuarters(a, b) {
+  const r = state.result; if (!r) return;
+  // 쿼터를 옮겼을 때 그 쿼터에 못 뛰는 사람 체크
+  const bad = [];
+  [[a, b], [b, a]].forEach(([from, to]) => r.lineup[from].forEach(s => s.players.forEach(pl => {
+    const p = state.players[pl.idx];
+    if (p && (p.avail?.[to] === false || !p.attending)) bad.push(`${p.name}(${to + 1}Q 불가)`);
+  })));
+  if (bad.length && !confirm(`바꾸면 못 뛰는 쿼터에 들어가는 선수가 있어요:\n${bad.join(', ')}\n\n그래도 바꿀까요?`)) return;
+  [r.lineup[a], r.lineup[b]] = [r.lineup[b], r.lineup[a]];
+  r.locked ||= Array(r.lineup.length).fill(false);
+  [r.locked[a], r.locked[b]] = [r.locked[b], r.locked[a]];
+  r.vacancies.forEach(v => { if (v.q === a) v.q = b; else if (v.q === b) v.q = a; });
+  r.sig = r.lineup.map(q => q.map(s => s.players.map(p => p.idx).sort().join('.')).join('/')).join('|');
+  curQ = b; save(); renderResult();
+  toast(`${a + 1}Q ↔ ${b + 1}Q 바꿨어요`);
+}
+
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 $('#copyBtn').addEventListener('click', async () => {
@@ -250,7 +315,7 @@ function renderPlayers() {
       b.addEventListener('click', () => {
         const nv = CYCLE[p.skills[pos] || 0];
         if (nv) p.skills[pos] = nv; else delete p.skills[pos];
-        invalidate(); renderPlayers();
+        markStale(); renderPlayers();
       });
       td.appendChild(b); tr.appendChild(td);
     });
@@ -268,7 +333,7 @@ function renderPlayers() {
 }
 $('#addPlayer').addEventListener('click', () => {
   state.players.push({ name: `새 선수${state.players.length + 1}`, skills: {}, merc: false, attending: true, avail: Array(state.quarters).fill(true) });
-  invalidate(); renderPlayers();
+  markStale(); renderPlayers();
   const inputs = document.querySelectorAll('.pname'); inputs[inputs.length - 1]?.select();
 });
 

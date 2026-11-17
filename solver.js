@@ -1,7 +1,7 @@
 // 쿼터별 라인업 최적화 (HiGHS MILP). 브라우저/Node 공용 ES module.
 // data = { formation: [{pos:'GK', count:1}, ...], quarters: 4,
 //          players: [{name, skills:{POS:score}, avail:[true,true,true,true]}],
-//          fairnessWeight: 50 }
+//          fairnessWeight: 50, fixed: [null, [{p, pos}], ...] }
 // highs = loadHighs() 결과 인스턴스
 
 // 시드 기반 난수 (mulberry32)
@@ -18,9 +18,17 @@ export function buildLP(data, seed) {
   const W = data.fairnessWeight ?? 50;
   const players = data.players;
   const forms = data.formation.filter(f => f.count > 0);
-  const vars = []; // {name,p,q,pos,score}
+  // data.fixed[q] = [{p, pos}] 이면 그 쿼터는 잠금: 해당 배치를 강제(가용여부/점수 무시).
+  // 잠긴 쿼터라도 빈 자리(불참자 등)는 다른 선수로 채울 수 있다.
+  const fixed = data.fixed || [];
+  const vars = []; // {name,p,q,pos,score,fix}
   players.forEach((pl, p) => {
     for (let q = 0; q < Q; q++) {
+      const f = fixed[q]?.find(a => a.p === p);
+      if (f) {
+        const i = forms.findIndex(x => x.pos === f.pos);
+        if (i >= 0) { vars.push({ name: `x_${p}_${q}_${i}`, p, q, pos: f.pos, i, score: pl.skills[f.pos] || 0, fix: true }); continue; }
+      }
       if (pl.avail && pl.avail[q] === false) continue;
       forms.forEach((f, i) => {
         const s = pl.skills[f.pos];
@@ -55,10 +63,13 @@ export function buildLP(data, seed) {
       if (vs.length > 1) L.push(` c${c++}: ${chunk(vs)} <= 1`);
     }
   });
-  // 공정성: mx >= pc_p, mn <= pc_p + (Q - avail_p)
+  // 잠금 강제
+  vars.filter(v => v.fix).forEach(v => L.push(` c${c++}: ${v.name} = 1`));
+  // 공정성: mx >= pc_p, mn <= pc_p + (Q - 뛸 수 있는 쿼터 수)
   players.forEach((pl, p) => {
-    const vs = vars.filter(v => v.p === p).map(v => `+ ${v.name}`);
-    const availQ = pl.avail ? pl.avail.filter(Boolean).length : Q;
+    const mine = vars.filter(v => v.p === p);
+    const vs = mine.map(v => `+ ${v.name}`);
+    const availQ = new Set(mine.map(v => v.q)).size;
     if (availQ === 0) return;
     const sum = vs.length ? chunk(vs) : '0 mx';
     L.push(` c${c++}: ${sum} - mx <= 0`);

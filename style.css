@@ -176,3 +176,16 @@ body { overflow-x: hidden; }
   .tabs button { flex: 1; }
   .qs button { width: 28px; height: 32px; }
 }
+
+/* 잠금 / 쿼터 바꾸기 */
+.lk { width: 13px; height: 13px; vertical-align: -1px; margin-right: 4px; fill: currentColor; stroke: currentColor; }
+.q-tabs button.locked { border-color: var(--ink); box-shadow: inset 0 -3px 0 var(--bib); }
+.q-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.lock-btn { display: inline-flex; align-items: center; min-height: 40px; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); font-weight: 700; font-size: 13px; }
+.lock-btn.on { background: var(--ink); color: var(--bib); border-color: var(--ink); }
+.swap { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.swap button { min-width: 44px; min-height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); font-weight: 700; color: var(--ink); }
+.swap button:hover, .lock-btn:hover { border-color: var(--ink); }
+.pitch-wrap.is-locked .pitch { box-shadow: inset 0 0 0 4px var(--bib); }
+.pitch-wrap.is-locked .pitch::before { content: "잠김"; position: absolute; top: 10px; right: 12px; z-index: 3; background: var(--ink); color: var(--bib); font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 6px; }
+.matrix thead .lk { width: 11px; height: 11px; }
