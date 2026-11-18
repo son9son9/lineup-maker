@@ -34,6 +34,15 @@
         </div>
         <p class="hint">이름을 눌러 출석/불참. 오른쪽 Q 버튼을 끄면 그 쿼터엔 못 뛰는 걸로 처리(지각·조퇴).</p>
         <ul id="attendList" class="attend-list"></ul>
+        <div class="pins">
+          <h3>포지션 고정</h3>
+          <div id="pinList" class="pin-list"></div>
+          <div class="pin-add">
+            <select id="pinPlayer" aria-label="선수"></select>
+            <select id="pinPos" aria-label="포지션"></select>
+            <button id="pinAdd" class="ghost">고정</button>
+          </div>
+        </div>
         <button id="runBtn" class="run">라인업 짜기</button>
         <p id="runMsg" class="run-msg" role="status"></p>
       </div>

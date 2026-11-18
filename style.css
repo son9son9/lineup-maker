@@ -189,3 +189,22 @@ body { overflow-x: hidden; }
 .pitch-wrap.is-locked .pitch { box-shadow: inset 0 0 0 4px var(--bib); }
 .pitch-wrap.is-locked .pitch::before { content: "잠김"; position: absolute; top: 10px; right: 12px; z-index: 3; background: var(--ink); color: var(--bib); font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 6px; }
 .matrix thead .lk { width: 11px; height: 11px; }
+
+/* 자리 잠금 / 포지션 고정 */
+button.chip { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+button.chip:hover .dot { transform: scale(1.06); }
+.chip .dot { position: relative; transition: transform .12s; }
+.chip.lkd .dot { box-shadow: 0 0 0 3px var(--ink), 0 2px 6px rgba(0,0,0,.25); }
+.lk-badge { position: absolute; right: -6px; top: -6px; width: 18px; height: 18px; border-radius: 50%; background: var(--ink); color: var(--bib); display: grid; place-items: center; }
+.lk-badge .lk { width: 10px; height: 10px; margin: 0; }
+.lock-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.slot-hint { font-size: 12px; color: var(--muted); font-weight: 600; }
+.link { background: none; border: 0; color: var(--green); font-weight: 700; text-decoration: underline; padding: 4px 6px; font-size: 12px; }
+.matrix td.lkd { box-shadow: inset 0 -2px 0 var(--ink); }
+.pins { border-top: 1px solid var(--line); padding-top: 12px; margin-bottom: 14px; }
+.pin-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.pin-chip { display: inline-flex; align-items: center; gap: 2px; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700; padding: 2px 2px 2px 10px; border-radius: 999px; }
+.pin-chip.bad { background: var(--danger); }
+.pin-chip button { background: none; border: 0; color: #fff; opacity: .7; width: 28px; height: 28px; font-size: 15px; }
+.pin-add { display: flex; gap: 6px; }
+.pin-add select { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: #fff; min-height: 40px; }

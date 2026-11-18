@@ -1,6 +1,6 @@
 // 쿼터별 라인업 최적화 (HiGHS MILP). 브라우저/Node 공용 ES module.
 // data = { formation: [{pos:'GK', count:1}, ...], quarters: 4,
-//          players: [{name, skills:{POS:score}, avail:[true,true,true,true]}],
+//          players: [{name, skills:{POS:score}, avail:[true,true,true,true], fixedPos?:'LW'}],
 //          fairnessWeight: 50, fixed: [null, [{p, pos}], ...] }
 // highs = loadHighs() 결과 인스턴스
 
@@ -30,6 +30,12 @@ export function buildLP(data, seed) {
         if (i >= 0) { vars.push({ name: `x_${p}_${q}_${i}`, p, q, pos: f.pos, i, score: pl.skills[f.pos] || 0, fix: true }); continue; }
       }
       if (pl.avail && pl.avail[q] === false) continue;
+      // 포지션 고정(pl.fixedPos): 뛸 때는 그 포지션만 (점수 없어도 허용)
+      const pin = pl.fixedPos && forms.findIndex(x => x.pos === pl.fixedPos);
+      if (pin != null && pin !== false && pin >= 0) {
+        vars.push({ name: `x_${p}_${q}_${pin}`, p, q, pos: pl.fixedPos, i: pin, score: pl.skills[pl.fixedPos] || 0 });
+        continue;
+      }
       forms.forEach((f, i) => {
         const s = pl.skills[f.pos];
         if (s && s > 0) vars.push({ name: `x_${p}_${q}_${i}`, p, q, pos: f.pos, i, score: s });

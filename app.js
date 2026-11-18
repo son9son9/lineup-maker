@@ -54,7 +54,7 @@ const LOCK_SVG = '<svg class="lk" viewBox="0 0 16 16" aria-hidden="true"><rect x
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'tab-' + b.dataset.tab));
-  if (b.dataset.tab === 'match') renderAttend();
+  if (b.dataset.tab === 'match') { renderAttend(); renderPins(); }
 }));
 
 const teamInput = $('#teamName');
@@ -68,7 +68,7 @@ function renderAttend() {
     const li = document.createElement('li');
     const who = document.createElement('button');
     who.className = 'who' + (p.attending ? ' on' : '');
-    who.innerHTML = `<span class="check"></span><span><span class="nm"></span>${p.merc ? '<span class="tag">용병</span>' : ''}<br><span class="main-pos">${mainPos(p)}</span></span>`;
+    who.innerHTML = `<span class="check"></span><span><span class="nm"></span>${p.merc ? '<span class="tag">용병</span>' : ''}<br><span class="main-pos">${p.fixedPos ? p.fixedPos + ' 고정' : mainPos(p)}</span></span>`;
     who.querySelector('.nm').textContent = p.name;
     who.addEventListener('click', () => { p.attending = !p.attending; markStale(); renderAttend(); });
     const qs = document.createElement('div');
@@ -95,15 +95,20 @@ $('#runBtn').addEventListener('click', async () => {
   msg.className = 'run-msg';
   if (!roster.length) { msg.textContent = '출석한 선수가 없어요.'; msg.classList.add('err'); return; }
   const prev = state.result;
-  const locked = prev && prev.lineup.length === state.quarters ? (prev.locked || []).slice() : [];
+  const locked = prev && prev.lineup.length === state.quarters ? (prev.locked || Array(state.quarters).fill(false)).slice() : [];
   if (locked.length && locked.filter(Boolean).length === state.quarters) {
     msg.textContent = '모든 쿼터가 잠겨 있어요. 다시 돌릴 쿼터의 잠금을 풀어주세요.'; msg.classList.add('err'); return;
   }
   const rosterPos = new Map(roster.map((p, k) => [p._i, k]));
-  const fixed = Array.from({ length: state.quarters }, (_, q) => locked[q]
-    ? prev.lineup[q].flatMap(s => s.players.filter(pl => rosterPos.has(pl.idx)).map(pl => ({ p: rosterPos.get(pl.idx), pos: s.pos })))
-    : null);
-  const dropped = locked.reduce((n, l, q) => n + (l ? prev.lineup[q].reduce((a, s) => a + s.players.filter(pl => !rosterPos.has(pl.idx)).length, 0) : 0), 0);
+  const slotLocks = locked.length ? (prev.slotLocks || []).map(a => (a || []).slice()) : [];
+  // 쿼터 잠금이면 전원, 아니면 개별 잠금 선수만 고정
+  const isFixed = (q, idx) => locked[q] || (slotLocks[q] || []).includes(idx);
+  const fixed = Array.from({ length: state.quarters }, (_, q) => {
+    if (!prev || !locked.length) return null;
+    const f = prev.lineup[q].flatMap(s => s.players.filter(pl => isFixed(q, pl.idx) && rosterPos.has(pl.idx)).map(pl => ({ p: rosterPos.get(pl.idx), pos: s.pos })));
+    return f.length ? f : null;
+  });
+  const dropped = !locked.length ? 0 : prev.lineup.reduce((n, qq, q) => n + qq.reduce((a, s) => a + s.players.filter(pl => isFixed(q, pl.idx) && !rosterPos.has(pl.idx)).length, 0), 0);
   btn.disabled = true; btn.textContent = '계산 중…'; msg.textContent = '';
   try {
     const highs = await getHighs();
@@ -112,7 +117,7 @@ $('#runBtn').addEventListener('click', async () => {
       quarters: state.quarters,
       fairnessWeight: state.fairnessWeight,
       formation: state.formation,
-      players: roster.map(p => ({ name: p.name, skills: p.skills, avail: p.avail })),
+      players: roster.map(p => ({ name: p.name, skills: p.skills, avail: p.avail, fixedPos: p.fixedPos })),
       fixed,
     };
     // 동점 최적해 중 무작위 선택. 직전 결과와 같으면 몇 번 다시 뽑는다.
@@ -128,13 +133,15 @@ $('#runBtn').addEventListener('click', async () => {
     state.result = {
       lineup: res.lineup, fit: res.fit, vacancies: res.vacancies, sig, round: (state.result?.round || 0) + 1,
       locked: Array.from({ length: state.quarters }, (_, q) => !!locked[q]),
+      slotLocks: Array.from({ length: state.quarters }, (_, q) => locked[q] ? [] : (slotLocks[q] || []).filter(i => rosterPos.has(i))),
       roster: roster.map(p => p._i), quarters: state.quarters, at: Date.now(),
     };
     save(); renderResult();
     const same = sig === prevSig;
     const nLock = locked.filter(Boolean).length;
+    const nSlot = state.result.slotLocks.reduce((a, x) => a + x.length, 0);
     msg.textContent = `${state.result.round}번째 조합 · ${Math.round(performance.now() - t0)}ms` +
-      (nLock ? ` · 잠긴 ${nLock}개 쿼터 유지` : '') +
+      (nLock ? ` · 잠긴 쿼터 ${nLock}개` : '') + (nSlot ? ` · 잠긴 자리 ${nSlot}개` : '') +
       (dropped ? ` · 잠긴 쿼터의 불참자 ${dropped}명 자리는 새로 채움` : '') +
       (same ? ' · 이 조건에선 다른 최적 조합이 없어요' : ' · 다시 누르면 같은 점수의 다른 조합') +
       (res.vacancies.length ? ' · 공석 있음' : '');
@@ -171,6 +178,7 @@ function renderResult() {
   // quarter tabs
   const qt = $('#qTabs'); qt.innerHTML = '';
   r.locked ||= Array(Q).fill(false);
+  r.slotLocks ||= Array.from({ length: Q }, () => []);
   r.lineup.forEach((q, i) => {
     const fit = q.reduce((s, sl) => s + sl.players.reduce((a, p) => a + p.score, 0), 0);
     const b = document.createElement('button');
@@ -187,7 +195,16 @@ function renderResult() {
   lk.className = 'lock-btn' + (r.locked[curQ] ? ' on' : '');
   lk.innerHTML = LOCK_SVG + (r.locked[curQ] ? `${curQ + 1}Q 잠김 · 해제` : `${curQ + 1}Q 잠그기`);
   lk.title = '잠근 쿼터는 다른 조합을 돌려도 그대로 유지돼요';
-  lk.addEventListener('click', () => { r.locked[curQ] = !r.locked[curQ]; save(); renderResult(); });
+  lk.addEventListener('click', () => { r.locked[curQ] = !r.locked[curQ]; r.slotLocks[curQ] = []; save(); renderResult(); });
+  const nSlot = r.slotLocks[curQ].length;
+  const hint = document.createElement('span'); hint.className = 'slot-hint';
+  hint.textContent = r.locked[curQ] ? '' : nSlot ? `자리 ${nSlot}개 잠김` : '선수를 누르면 그 자리만 잠겨요';
+  if (nSlot && !r.locked[curQ]) {
+    const clr = document.createElement('button'); clr.className = 'link'; clr.textContent = '해제';
+    clr.addEventListener('click', () => { r.slotLocks[curQ] = []; save(); renderResult(); });
+    hint.appendChild(clr);
+  }
+  const left = document.createElement('div'); left.className = 'lock-group'; left.append(lk, hint);
   const sw = document.createElement('div'); sw.className = 'swap';
   sw.innerHTML = `<span>${curQ + 1}Q와 바꾸기</span>`;
   r.lineup.forEach((_, j) => {
@@ -197,7 +214,7 @@ function renderResult() {
     b.addEventListener('click', () => swapQuarters(curQ, j));
     sw.appendChild(b);
   });
-  tools.append(lk, sw);
+  tools.append(left, sw);
   $('.pitch-wrap').classList.toggle('is-locked', !!r.locked[curQ]);
   if (r.stale) {
     const m = $('#runMsg'); m.className = 'run-msg err';
@@ -212,13 +229,18 @@ function renderResult() {
     for (let k = 0; k < n; k++) {
       const pl = slot.players[k];
       const [x, y] = chipXY(slot.pos, k, n);
-      const c = document.createElement('div');
+      const c = document.createElement(pl ? 'button' : 'div');
       const p = pl && state.players[pl.idx];
-      c.className = 'chip ' + (pl ? 's' + pl.score : 'vac') + (slot.pos === 'GK' && pl ? ' gk' : '') + (p?.merc ? ' merc' : '');
+      const isLk = pl && (r.locked[curQ] || r.slotLocks[curQ].includes(pl.idx));
+      c.className = 'chip ' + (pl ? 's' + pl.score : 'vac') + (slot.pos === 'GK' && pl ? ' gk' : '') + (p?.merc ? ' merc' : '') + (isLk ? ' lkd' : '');
       c.style.left = x + '%'; c.style.top = y + '%';
-      c.innerHTML = `<div class="dot">${slot.pos}</div><div class="label"></div>`;
+      c.innerHTML = `<div class="dot">${slot.pos}${isLk ? `<span class="lk-badge">${LOCK_SVG}</span>` : ''}</div><div class="label"></div>`;
       c.querySelector('.label').textContent = pl ? (p?.name ?? pl.name) : '공석';
-      c.title = pl ? `${slot.pos} · 적합도 ${pl.score}` : '공석';
+      if (pl) {
+        c.title = `${slot.pos} · 적합도 ${pl.score} · 눌러서 이 자리 ${isLk ? '잠금 해제' : '잠그기'}`;
+        c.setAttribute('aria-pressed', isLk ? 'true' : 'false');
+        c.addEventListener('click', () => toggleSlotLock(curQ, pl.idx));
+      } else c.title = '공석';
       chips.appendChild(c);
     }
   });
@@ -252,7 +274,8 @@ function renderResult() {
     h += `<tr${playing.has(i) ? ' class="hl"' : ''}><td>${esc(p.name)}</td>`;
     for (let q = 0; q < Q; q++) {
       const c = cell[i]?.[q];
-      h += c ? `<td class="p s${c.score}">${c.pos}</td>` : `<td class="b">${p.avail?.[q] === false ? '×' : '–'}</td>`;
+      const lkd = c && (r.locked[q] || r.slotLocks[q]?.includes(i));
+      h += c ? `<td class="p s${c.score}${lkd ? ' lkd' : ''}">${c.pos}</td>` : `<td class="b">${p.avail?.[q] === false ? '×' : '–'}</td>`;
     }
     h += `<td class="tot">${n}/${Q}</td></tr>`;
   });
@@ -260,6 +283,45 @@ function renderResult() {
   const counts = rows.map(x => x.n);
   $('#summary').textContent = `총 적합도 ${r.fit} · 출전 쿼터 ${Math.min(...counts)}~${Math.max(...counts)} · 노란 칸=주포지션, 주황 글씨=커버 포지션, ×=불참 쿼터`;
 }
+function toggleSlotLock(q, idx) {
+  const r = state.result; if (!r) return;
+  if (r.locked[q]) {
+    // 쿼터 전체 잠금 상태에서 한 명만 풀기 → 나머지를 개별 잠금으로 전환
+    r.locked[q] = false;
+    r.slotLocks[q] = r.lineup[q].flatMap(s => s.players.map(p => p.idx)).filter(i => i !== idx);
+  } else {
+    const a = r.slotLocks[q];
+    const k = a.indexOf(idx);
+    if (k >= 0) a.splice(k, 1); else a.push(idx);
+  }
+  save(); renderResult();
+}
+
+function renderPins() {
+  const list = $('#pinList'); list.innerHTML = '';
+  const formPos = state.formation.filter(f => f.count > 0).map(f => f.pos);
+  state.players.forEach(p => {
+    if (!p.fixedPos) return;
+    const chip = document.createElement('span'); chip.className = 'pin-chip' + (formPos.includes(p.fixedPos) ? '' : ' bad');
+    chip.textContent = `${p.name} → ${p.fixedPos}`;
+    if (!formPos.includes(p.fixedPos)) chip.title = '현재 포메이션에 없는 포지션이라 적용 안 됨';
+    const x = document.createElement('button'); x.textContent = '×'; x.setAttribute('aria-label', `${p.name} 고정 해제`);
+    x.addEventListener('click', () => { delete p.fixedPos; markStale(); renderPins(); renderAttend(); });
+    chip.appendChild(x); list.appendChild(chip);
+  });
+  if (!list.children.length) list.innerHTML = '<span class="hint" style="margin:0">없음 — 고정한 선수는 뛸 때 항상 그 포지션에만 들어가요</span>';
+  const ps = $('#pinPlayer'), pp = $('#pinPos');
+  ps.innerHTML = '<option value="">선수</option>' + state.players.map((p, i) => p.fixedPos ? '' : `<option value="${i}">${esc(p.name)}</option>`).join('');
+  pp.innerHTML = '<option value="">포지션</option>' + formPos.map(x => `<option>${x}</option>`).join('');
+}
+$('#pinAdd').addEventListener('click', () => {
+  const i = $('#pinPlayer').value, pos = $('#pinPos').value;
+  if (i === '' || !pos) { toast('선수와 포지션을 고르세요'); return; }
+  const p = state.players[+i]; p.fixedPos = pos;
+  if (!p.skills[pos]) toast(`${p.name}은(는) ${pos} 점수가 없어요. 점수 0으로 계산돼요`);
+  markStale(); renderPins(); renderAttend();
+});
+
 function swapQuarters(a, b) {
   const r = state.result; if (!r) return;
   // 쿼터를 옮겼을 때 그 쿼터에 못 뛰는 사람 체크
@@ -272,6 +334,8 @@ function swapQuarters(a, b) {
   [r.lineup[a], r.lineup[b]] = [r.lineup[b], r.lineup[a]];
   r.locked ||= Array(r.lineup.length).fill(false);
   [r.locked[a], r.locked[b]] = [r.locked[b], r.locked[a]];
+  r.slotLocks ||= Array.from({ length: r.lineup.length }, () => []);
+  [r.slotLocks[a], r.slotLocks[b]] = [r.slotLocks[b], r.slotLocks[a]];
   r.vacancies.forEach(v => { if (v.q === a) v.q = b; else if (v.q === b) v.q = a; });
   r.sig = r.lineup.map(q => q.map(s => s.players.map(p => p.idx).sort().join('.')).join('/')).join('|');
   curQ = b; save(); renderResult();
@@ -386,7 +450,7 @@ $('#fairness').addEventListener('change', e => { state.fairnessWeight = Number(e
 
 function renderAll() {
   teamInput.value = state.teamName;
-  renderAttend(); renderPlayers(); renderFormation(); renderResult();
+  renderAttend(); renderPins(); renderPlayers(); renderFormation(); renderResult();
 }
 renderAll();
 getHighs().catch(() => {}); // 미리 로드
